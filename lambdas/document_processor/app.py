@@ -1,12 +1,3 @@
-"""
-Document Processor Lambda Function
-
-This Lambda function handles document processing operations:
-1. Processing uploaded document templates (PDF, DOCX, XLSX)
-2. Validating financial data spreadsheets
-3. Extracting text from documents using AWS Textract
-"""
-
 import os
 import json
 import boto3
@@ -140,65 +131,6 @@ def process_document(document_data: Dict[str, Any]) -> Dict[str, Any]:
         raise ValueError(f"Unsupported document type: {document_type}")
 
 
-def validate_financial_data(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Validate financial data from a spreadsheet"""
-    s3_key = data.get('financial_data_key')
-    
-    if not s3_key:
-        raise ValueError("Missing financial_data_key")
-        
-    # Determine file type from extension
-    file_type = Path(s3_key).suffix.lstrip('.')
-    
-    with tempfile.NamedTemporaryFile(suffix=f'.{file_type}') as tmp:
-        s3.download_file(TEMPLATES_BUCKET, s3_key, tmp.name)
-        
-        # Load the file into a pandas DataFrame
-        if file_type == 'csv':
-            df = pd.read_csv(tmp.name)
-        else:
-            df = pd.read_excel(tmp.name)
-            
-        # Validation checks
-        validation_errors = []
-        
-        # Check for required columns
-        required_columns = data.get('required_columns', [])
-        missing_columns = [col for col in required_columns if col not in df.columns]
-        if missing_columns:
-            validation_errors.append(f"Missing required columns: {', '.join(missing_columns)}")
-            
-        # Check for missing values in critical columns
-        critical_columns = data.get('critical_columns', [])
-        for col in critical_columns:
-            if col in df.columns and df[col].isnull().any():
-                validation_errors.append(f"Column '{col}' contains missing values")
-                
-        # Check for negative values in amount/price columns
-        amount_columns = data.get('amount_columns', [])
-        for col in amount_columns:
-            if col in df.columns and (df[col] < 0).any():
-                validation_errors.append(f"Column '{col}' contains negative values")
-                
-        # Check allocation percentages sum to 100% if specified
-        allocation_column = data.get('allocation_column')
-        if allocation_column and allocation_column in df.columns:
-            total_allocation = df[allocation_column].sum()
-            if not (99.5 <= total_allocation <= 100.5):  # Allow small rounding errors
-                validation_errors.append(f"Allocation percentages sum to {total_allocation}%, not 100%")
-                
-        # Return validation results
-        is_valid = len(validation_errors) == 0
-        return {
-            'is_valid': is_valid,
-            'validation_errors': validation_errors,
-            'column_names': df.columns.tolist(),
-            'row_count': len(df),
-            'financial_data_key': s3_key,
-            'summary_statistics': json.loads(df.describe().to_json())
-        }
-
-
 def handler(event, context):
     """Lambda handler function"""
     try:
@@ -220,15 +152,7 @@ def handler(event, context):
                 'statusCode': 200,
                 'processed_documents': results
             }
-            
-        elif operation == 'validate_financial_data':
-            # Validate financial data
-            validation_result = validate_financial_data(event)
-            return {
-                'statusCode': 200,
-                'validation_result': validation_result
-            }
-            
+        
         else:
             logger.error(f"Unknown operation: {operation}")
             return {

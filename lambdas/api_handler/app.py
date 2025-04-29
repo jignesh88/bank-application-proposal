@@ -52,3 +52,62 @@ def start_workflow(workflow_type: str, payload: Dict[str, Any]) -> Dict[str, Any
     except Exception as e:
         logger.error(f"Error starting workflow: {e}")
         raise
+
+
+def handle_document_upload(body: Dict[str, Any]) -> Dict[str, Any]:
+    """Handle document upload requests"""
+    try:
+        # Check if the request contains a base64-encoded file
+        if 'file_content_base64' not in body:
+            return {
+                'statusCode': 400,
+                'body': json.dumps({
+                    'error': 'Missing file_content_base64 in request'
+                })
+            }
+            
+        # Extract file information
+        file_content_base64 = body['file_content_base64']
+        file_name = body.get('file_name', f"document-{uuid.uuid4()}")
+        document_type = body.get('document_type', 'pdf')
+        
+        # Decode the file content
+        file_content = base64.b64decode(file_content_base64)
+        
+        # Upload to S3
+        s3_key = f"templates/{file_name}"
+        s3.put_object(
+            Bucket=TEMPLATES_BUCKET,
+            Key=s3_key,
+            Body=file_content
+        )
+        
+        logger.info(f"Uploaded file to s3://{TEMPLATES_BUCKET}/{s3_key}")
+        
+        # Start document ingestion workflow
+        workflow_result = start_workflow('document_ingestion', {
+            'documents': [{
+                'document_type': document_type,
+                's3_key': s3_key,
+                'document_name': file_name
+            }]
+        })
+        
+        return {
+            'statusCode': 200,
+            'body': json.dumps({
+                'message': f"Document uploaded successfully: {file_name}",
+                'document_type': document_type,
+                's3_key': s3_key,
+                'workflow_execution': workflow_result
+            })
+        }
+        
+    except Exception as e:
+        logger.error(f"Error handling document upload: {e}")
+        return {
+            'statusCode': 500,
+            'body': json.dumps({
+                'error': str(e)
+            })
+        }

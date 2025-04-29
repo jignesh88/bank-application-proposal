@@ -206,3 +206,89 @@ def generate_proposal(client_details: Dict[str, Any], financial_data: Dict[str, 
             'is_valid': False,
             'error': f"Error generating proposal: {str(e)}"
         }
+
+
+def regenerate_proposal(client_details: Dict[str, Any], financial_data: Dict[str, Any], 
+                        context_result: Dict[str, Any], previous_attempt: Dict[str, Any]) -> Dict[str, Any]:
+    """Regenerate a proposal with error corrections"""
+    try:
+        # Initialize OpenAI
+        initialize_openai()
+        
+        # Extract error information from previous attempt
+        error = previous_attempt.get('error', 'Unknown error')
+        raw_proposal = previous_attempt.get('raw_proposal', {})
+        
+        # Create system message with error correction instructions
+        system_message = """
+        You are an expert financial advisor that creates detailed personalized wealth management proposals.
+        The previous attempt to generate a proposal had errors that need to be fixed.
+        Follow these rules:
+        1. Fix all validation errors in the previous attempt
+        2. Ensure all allocations add up to 100%
+        3. Include appropriate risk disclaimers for each product
+        4. Provide a clear implementation timeline
+        5. Format your response as a valid JSON object matching the ProposalDocument schema
+        """
+        
+        # Create prompt with client information, context, and error details
+        user_message = f"""
+        CLIENT INFORMATION:
+        Name: {client_details.get('client_name', 'Unknown')}
+        Type: {client_details.get('client_type', 'Unknown')}
+        Risk Profile: {client_details.get('risk_profile', 'Unknown')}
+        Investment Horizon: {client_details.get('investment_horizon', 'Unknown')} years
+        Total Assets: ${client_details.get('total_assets', 0):,.2f}
+        
+        PREVIOUS ATTEMPT ERRORS:
+        {error}
+        
+        PREVIOUS PROPOSAL:
+        {json.dumps(raw_proposal, indent=2) if isinstance(raw_proposal, dict) else raw_proposal}
+        
+        Please fix the errors and create a valid proposal that matches the ProposalDocument schema.
+        """
+        
+        # Generate corrected proposal
+        response = openai.ChatCompletion.create(
+            model=FINE_TUNED_MODEL,
+            messages=[
+                {"role": "system", "content": system_message},
+                {"role": "user", "content": user_message}
+            ],
+            temperature=0.2,
+            max_tokens=4000
+        )
+        
+        # Extract generated proposal
+        proposal_text = response.choices[0].message.content
+        
+        # Try to parse as JSON
+        try:
+            proposal_json = json.loads(proposal_text)
+            
+            # If proposal_id is not provided, generate one
+            if 'proposal_id' not in proposal_json:
+                proposal_json['proposal_id'] = f"PROP-{uuid.uuid4().hex[:8].upper()}"
+                
+            # Validate with Pydantic
+            proposal = ProposalDocument(**proposal_json)
+            
+            return {
+                'is_valid': True,
+                'proposal': proposal.dict(),
+                'usage': response.usage.to_dict() if hasattr(response, 'usage') else None
+            }
+            
+        except (json.JSONDecodeError, ValidationError) as e:
+            logger.error(f"Regenerated proposal still has errors: {e}")
+            
+            # Force a more structured approach on second failure
+            return format_proposal_fallback(client_details, financial_data, context_result)
+            
+    except Exception as e:
+        logger.error(f"Error regenerating proposal: {e}")
+        return {
+            'is_valid': False,
+            'error': f"Error regenerating proposal: {str(e)}"
+        }

@@ -111,3 +111,44 @@ def handle_document_upload(body: Dict[str, Any]) -> Dict[str, Any]:
                 'error': str(e)
             })
         }
+
+
+def handle_fine_tuning_request(body: Dict[str, Any]) -> Dict[str, Any]:
+    """Handle fine-tuning requests"""
+    try:
+        # Check if historic proposals key is provided
+        if 'historic_proposals_key' not in body:
+            return {
+                'statusCode': 400,
+                'body': json.dumps({
+                    'error': 'Missing historic_proposals_key in request'
+                })
+            }
+            
+        historic_proposals_key = body['historic_proposals_key']
+        model_name = body.get('model_name', 'gpt-4-turbo')
+        
+        # Start fine-tuning workflow
+        workflow_result = start_workflow('fine_tuning', {
+            'historic_proposals_key': historic_proposals_key,
+            'model_name': model_name
+        })
+        
+        return {
+            'statusCode': 200,
+            'body': json.dumps({
+                'message': 'Fine-tuning job started successfully',
+                'historic_proposals_key': historic_proposals_key,
+                'model_name': model_name,
+                'workflow_execution': workflow_result
+            })
+        }
+        
+    except Exception as e:
+        logger.error(f"Error handling fine-tuning request: {e}")
+        return {
+            'statusCode': 500,
+            'body': json.dumps({
+                'error': str(e)
+            })
+        }

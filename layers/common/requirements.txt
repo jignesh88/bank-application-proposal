@@ -1,0 +1,26 @@
+# AWS SDK Extensions
+boto3==1.26.142
+botocore==1.29.142
+
+# OpenAI and LangChain
+openai==0.27.8
+langchain==0.0.191
+faiss-cpu==1.7.4
+
+# Document Processing
+pandas==2.0.2
+python-docx==0.8.11
+openpyxl==3.1.2
+python-pptx==0.6.21
+PyPDF2==3.0.1
+
+# Data Validation
+pydantic==1.10.8
+
+# Utils
+tqdm==4.65.0
+requests==2.31.0
+numpy==1.24.3
+json5==0.9.14
+python-dotenv==1.0.0
+tenacity==8.2.2

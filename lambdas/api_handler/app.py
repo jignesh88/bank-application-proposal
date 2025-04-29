@@ -211,3 +211,125 @@ def handle_proposal_generation(body: Dict[str, Any]) -> Dict[str, Any]:
                 'error': str(e)
             })
         }
+
+
+def handle_status_check(event: Dict[str, Any]) -> Dict[str, Any]:
+    """Handle workflow status check requests"""
+    try:
+        # Extract the execution ARN from query parameters
+        query_params = event.get('queryStringParameters', {}) or {}
+        execution_arn = query_params.get('execution_arn')
+        
+        if not execution_arn:
+            return {
+                'statusCode': 400,
+                'body': json.dumps({
+                    'error': 'Missing execution_arn parameter'
+                })
+            }
+            
+        # Check execution status
+        response = sfn.describe_execution(
+            executionArn=execution_arn
+        )
+        
+        status = response['status']
+        output = json.loads(response.get('output', '{}')) if 'output' in response else None
+        
+        return {
+            'statusCode': 200,
+            'body': json.dumps({
+                'execution_arn': execution_arn,
+                'status': status,
+                'started_at': response['startDate'].isoformat(),
+                'stopped_at': response.get('stopDate', '').isoformat() if 'stopDate' in response else None,
+                'output': output
+            })
+        }
+        
+    except Exception as e:
+        logger.error(f"Error checking workflow status: {e}")
+        return {
+            'statusCode': 500,
+            'body': json.dumps({
+                'error': str(e)
+            })
+        }
+
+
+def handler(event, context):
+    """Lambda handler function"""
+    try:
+        logger.info(f"Received event: {json.dumps(event)}")
+        
+        # Determine the request type
+        http_method = event.get('httpMethod', '')
+        resource = event.get('resource', '')
+        
+        # Parse the request body if present
+        body = {}
+        if 'body' in event and event['body']:
+            try:
+                body = json.loads(event['body'])
+            except json.JSONDecodeError:
+                return {
+                    'statusCode': 400,
+                    'body': json.dumps({
+                        'error': 'Invalid JSON in request body'
+                    })
+                }
+                
+        # Route the request
+        if resource == '/workflow' and http_method == 'POST':
+            # Check workflow type
+            if 'workflow_type' not in body:
+                return {
+                    'statusCode': 400,
+                    'body': json.dumps({
+                        'error': 'Missing workflow_type in request'
+                    })
+                }
+                
+            workflow_type = body['workflow_type']
+            
+            if workflow_type == 'document_ingestion':
+                return handle_document_upload(body)
+                
+            elif workflow_type == 'fine_tuning':
+                return handle_fine_tuning_request(body)
+                
+            elif workflow_type == 'proposal_generation':
+                return handle_proposal_generation(body)
+                
+            else:
+                return {
+                    'statusCode': 400,
+                    'body': json.dumps({
+                        'error': f"Invalid workflow_type: {workflow_type}"
+                    })
+                }
+                
+        elif resource == '/status' and http_method == 'GET':
+            return handle_status_check(event)
+            
+        elif resource == '/documents' and http_method == 'POST':
+            return handle_document_upload(body)
+            
+        else:
+            return {
+                'statusCode': 404,
+                'body': json.dumps({
+                    'error': f"Unsupported resource or method: {resource} {http_method}"
+                })
+            }
+            
+    except Exception as e:
+        logger.error(f"Error processing request: {e}")
+        import traceback
+        traceback.print_exc()
+        return {
+            'statusCode': 500,
+            'body': json.dumps({
+                'error': str(e)
+            })
+        }

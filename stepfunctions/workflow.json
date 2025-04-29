@@ -1,0 +1,161 @@
+{
+  "Comment": "Banking Proposal Generator Workflow",
+  "StartAt": "DetermineWorkflowType",
+  "States": {
+    "DetermineWorkflowType": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.workflow_type",
+          "StringEquals": "document_ingestion",
+          "Next": "DocumentProcessing"
+        },
+        {
+          "Variable": "$.workflow_type",
+          "StringEquals": "fine_tuning",
+          "Next": "FineTuningProcess"
+        },
+        {
+          "Variable": "$.workflow_type",
+          "StringEquals": "proposal_generation",
+          "Next": "ValidateFinancialData"
+        }
+      ],
+      "Default": "FailWorkflow"
+    },
+    
+    "DocumentProcessing": {
+      "Type": "Task",
+      "Resource": "${DocumentProcessorLambdaArn}",
+      "Parameters": {
+        "operation": "process_documents",
+        "documents.$": "$.documents"
+      },
+      "ResultPath": "$.processed_documents",
+      "Next": "RAGDocumentIngestion"
+    },
+    
+    "RAGDocumentIngestion": {
+      "Type": "Task",
+      "Resource": "${RAGLambdaArn}",
+      "Parameters": {
+        "operation": "ingest_documents",
+        "processed_documents.$": "$.processed_documents"
+      },
+      "ResultPath": "$.rag_result",
+      "Next": "WorkflowSucceeded"
+    },
+    
+    "FineTuningProcess": {
+      "Type": "Task",
+      "Resource": "${FineTuningLambdaArn}",
+      "Parameters": {
+        "operation": "prepare_and_start_fine_tuning",
+        "historic_proposals.$": "$.historic_proposals"
+      },
+      "ResultPath": "$.fine_tuning_result",
+      "Next": "WorkflowSucceeded"
+    },
+    
+    "ValidateFinancialData": {
+      "Type": "Task",
+      "Resource": "${DocumentProcessorLambdaArn}",
+      "Parameters": {
+        "operation": "validate_financial_data",
+        "financial_data.$": "$.financial_data"
+      },
+      "ResultPath": "$.validation_result",
+      "Next": "CheckValidationResult"
+    },
+    
+    "CheckValidationResult": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.validation_result.is_valid",
+          "BooleanEquals": true,
+          "Next": "RetrieveRelevantContext"
+        }
+      ],
+      "Default": "FailWithValidationError"
+    },
+    
+    "RetrieveRelevantContext": {
+      "Type": "Task",
+      "Resource": "${RAGLambdaArn}",
+      "Parameters": {
+        "operation": "retrieve_context",
+        "client_details.$": "$.client_details",
+        "validation_result.$": "$.validation_result"
+      },
+      "ResultPath": "$.context_result",
+      "Next": "GenerateProposal"
+    },
+    
+    "GenerateProposal": {
+      "Type": "Task",
+      "Resource": "${ProposalGeneratorLambdaArn}",
+      "Parameters": {
+        "operation": "generate_proposal",
+        "client_details.$": "$.client_details",
+        "financial_data.$": "$.financial_data",
+        "context_result.$": "$.context_result"
+      },
+      "ResultPath": "$.proposal_result",
+      "Next": "CheckProposalValidity"
+    },
+    
+    "CheckProposalValidity": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.proposal_result.is_valid",
+          "BooleanEquals": true,
+          "Next": "FormatFinalDocument"
+        }
+      ],
+      "Default": "RegenerateProposal"
+    },
+    
+    "RegenerateProposal": {
+      "Type": "Task",
+      "Resource": "${ProposalGeneratorLambdaArn}",
+      "Parameters": {
+        "operation": "regenerate_proposal",
+        "client_details.$": "$.client_details",
+        "financial_data.$": "$.financial_data",
+        "context_result.$": "$.context_result",
+        "previous_attempt.$": "$.proposal_result"
+      },
+      "ResultPath": "$.proposal_result",
+      "Next": "FormatFinalDocument"
+    },
+    
+    "FormatFinalDocument": {
+      "Type": "Task",
+      "Resource": "${ProposalGeneratorLambdaArn}",
+      "Parameters": {
+        "operation": "format_document",
+        "proposal.$": "$.proposal_result.proposal"
+      },
+      "ResultPath": "$.document_result",
+      "Next": "WorkflowSucceeded"
+    },
+    
+    "WorkflowSucceeded": {
+      "Type": "Succeed"
+    },
+    
+    "FailWithValidationError": {
+      "Type": "Fail",
+      "Cause": "Financial data validation failed",
+      "Error": "ValidationError"
+    },
+    
+    "FailWorkflow": {
+      "Type": "Fail",
+      "Cause": "Invalid workflow type specified",
+      "Error": "InvalidWorkflowType"
+    }
+  }
+}

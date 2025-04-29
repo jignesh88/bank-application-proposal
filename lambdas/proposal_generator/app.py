@@ -89,3 +89,120 @@ class ProposalDocument(BaseModel):
             if not (99.5 <= total_allocation <= 100.5):  # Allow small rounding errors
                 raise ValueError(f"Total allocation must equal 100% (current: {total_allocation}%)")
         return values
+
+
+# Set up OpenAI API key
+def get_openai_api_key():
+    """Retrieve OpenAI API key from Parameter Store"""
+    try:
+        response = ssm.get_parameter(
+            Name=OPENAI_API_KEY_PARAM,
+            WithDecryption=True
+        )
+        return response['Parameter']['Value']
+    except Exception as e:
+        logger.error(f"Error retrieving OpenAI API key: {e}")
+        raise
+
+
+def initialize_openai():
+    """Initialize OpenAI API client"""
+    openai.api_key = get_openai_api_key()
+
+
+def generate_proposal(client_details: Dict[str, Any], financial_data: Dict[str, Any], context_result: Dict[str, Any], model: str = None) -> Dict[str, Any]:
+    """Generate a proposal using the fine-tuned model and RAG context"""
+    try:
+        # Initialize OpenAI
+        initialize_openai()
+        
+        # Use specified model or default to the configured fine-tuned model
+        model_to_use = model or FINE_TUNED_MODEL
+        
+        # Extract relevant context
+        context_items = context_result.get('body', {}).get('context', [])
+        context_text = "\n\n".join([item['content'] for item in context_items]) if context_items else ""
+        
+        # Create system message with instructions
+        system_message = """
+        You are an expert financial advisor that creates detailed personalized wealth management proposals.
+        Follow these rules:
+        1. Use the client information and context to create a tailored proposal
+        2. Ensure all allocations add up to 100%
+        3. Include appropriate risk disclaimers for each product
+        4. Provide a clear implementation timeline
+        5. Format your response as a valid JSON object matching the ProposalDocument schema
+        """
+        
+        # Create prompt with client information and context
+        user_message = f"""
+        CLIENT INFORMATION:
+        Name: {client_details.get('client_name', 'Unknown')}
+        Type: {client_details.get('client_type', 'Unknown')}
+        Risk Profile: {client_details.get('risk_profile', 'Unknown')}
+        Investment Horizon: {client_details.get('investment_horizon', 'Unknown')} years
+        Total Assets: ${client_details.get('total_assets', 0):,.2f}
+        
+        FINANCIAL DATA SUMMARY:
+        {json.dumps(financial_data.get('validation_result', {}).get('summary_statistics', {}), indent=2)}
+        
+        RELEVANT CONTEXT:
+        {context_text}
+        
+        Please create a comprehensive wealth management proposal for this client.
+        Your output must be a valid JSON object that matches the ProposalDocument schema.
+        """
+        
+        # Generate proposal using OpenAI
+        response = openai.ChatCompletion.create(
+            model=model_to_use,
+            messages=[
+                {"role": "system", "content": system_message},
+                {"role": "user", "content": user_message}
+            ],
+            temperature=0.3,
+            max_tokens=4000
+        )
+        
+        # Extract generated proposal
+        proposal_text = response.choices[0].message.content
+        
+        # Try to parse as JSON
+        try:
+            proposal_json = json.loads(proposal_text)
+            
+            # If proposal_id is not provided, generate one
+            if 'proposal_id' not in proposal_json:
+                proposal_json['proposal_id'] = f"PROP-{uuid.uuid4().hex[:8].upper()}"
+                
+            # Validate with Pydantic
+            proposal = ProposalDocument(**proposal_json)
+            
+            return {
+                'is_valid': True,
+                'proposal': proposal.dict(),
+                'usage': response.usage.to_dict() if hasattr(response, 'usage') else None
+            }
+            
+        except json.JSONDecodeError as e:
+            logger.error(f"Generated proposal is not valid JSON: {e}")
+            return {
+                'is_valid': False,
+                'error': f"Generated proposal is not valid JSON: {str(e)}",
+                'raw_proposal': proposal_text
+            }
+            
+        except ValidationError as e:
+            logger.error(f"Generated proposal failed schema validation: {e}")
+            return {
+                'is_valid': False,
+                'error': f"Schema validation failed: {str(e)}",
+                'raw_proposal': proposal_json
+            }
+            
+    except Exception as e:
+        logger.error(f"Error generating proposal: {e}")
+        return {
+            'is_valid': False,
+            'error': f"Error generating proposal: {str(e)}"
+        }

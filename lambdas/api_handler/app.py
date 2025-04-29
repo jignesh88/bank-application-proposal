@@ -152,3 +152,62 @@ def handle_fine_tuning_request(body: Dict[str, Any]) -> Dict[str, Any]:
                 'error': str(e)
             })
         }
+
+
+def handle_proposal_generation(body: Dict[str, Any]) -> Dict[str, Any]:
+    """Handle proposal generation requests"""
+    try:
+        # Check for required fields
+        required_fields = ['client_details', 'financial_data_key']
+        missing_fields = [field for field in required_fields if field not in body]
+        
+        if missing_fields:
+            return {
+                'statusCode': 400,
+                'body': json.dumps({
+                    'error': f"Missing required fields: {', '.join(missing_fields)}"
+                })
+            }
+            
+        # Extract request parameters
+        client_details = body['client_details']
+        financial_data_key = body['financial_data_key']
+        
+        # Additional validation parameters
+        required_columns = body.get('required_columns', [])
+        critical_columns = body.get('critical_columns', [])
+        amount_columns = body.get('amount_columns', [])
+        allocation_column = body.get('allocation_column')
+        
+        # Prepare the payload
+        payload = {
+            'client_details': client_details,
+            'financial_data': {
+                'financial_data_key': financial_data_key,
+                'required_columns': required_columns,
+                'critical_columns': critical_columns,
+                'amount_columns': amount_columns,
+                'allocation_column': allocation_column
+            }
+        }
+        
+        # Start proposal generation workflow
+        workflow_result = start_workflow('proposal_generation', payload)
+        
+        return {
+            'statusCode': 200,
+            'body': json.dumps({
+                'message': 'Proposal generation started successfully',
+                'client_name': client_details.get('client_name', 'Unknown'),
+                'workflow_execution': workflow_result
+            })
+        }
+        
+    except Exception as e:
+        logger.error(f"Error handling proposal generation request: {e}")
+        return {
+            'statusCode': 500,
+            'body': json.dumps({
+                'error': str(e)
+            })
+        }

@@ -292,3 +292,250 @@ def regenerate_proposal(client_details: Dict[str, Any], financial_data: Dict[str
             'is_valid': False,
             'error': f"Error regenerating proposal: {str(e)}"
         }
+
+
+def format_proposal_fallback(client_details: Dict[str, Any], financial_data: Dict[str, Any], 
+                             context_result: Dict[str, Any]) -> Dict[str, Any]:
+    """Fallback method to generate a valid proposal with a more structured approach"""
+    try:
+        # Generate a minimal valid proposal structure
+        proposal_id = f"PROP-{uuid.uuid4().hex[:8].upper()}"
+        
+        # Create a basic proposal with minimal required fields
+        proposal = {
+            "proposal_id": proposal_id,
+            "generation_date": datetime.now().isoformat(),
+            "client_details": {
+                "client_id": client_details.get('client_id', f"C-{uuid.uuid4().hex[:6].upper()}"),
+                "client_name": client_details.get('client_name', 'Unknown'),
+                "client_type": client_details.get('client_type', 'individual'),
+                "risk_profile": client_details.get('risk_profile', 'moderate'),
+                "investment_horizon": client_details.get('investment_horizon', '10'),
+                "total_assets": float(client_details.get('total_assets', 100000))
+            },
+            "executive_summary": "Custom wealth management proposal based on client's risk profile and investment goals.",
+            "recommendations": [
+                {
+                    "product_name": "Diversified Equity Fund",
+                    "product_type": "Mutual Fund",
+                    "allocation_percentage": 40.0,
+                    "expected_return": 7.5,
+                    "risk_level": "Moderate",
+                    "fee_structure": "1.2% annual management fee"
+                },
+                {
+                    "product_name": "Corporate Bond Fund",
+                    "product_type": "Fixed Income",
+                    "allocation_percentage": 30.0,
+                    "expected_return": 4.5,
+                    "risk_level": "Low to Moderate",
+                    "fee_structure": "0.8% annual management fee"
+                },
+                {
+                    "product_name": "Money Market Fund",
+                    "product_type": "Cash Equivalent",
+                    "allocation_percentage": 15.0,
+                    "expected_return": 2.0,
+                    "risk_level": "Low",
+                    "fee_structure": "0.5% annual management fee"
+                },
+                {
+                    "product_name": "Real Estate Investment Trust",
+                    "product_type": "Alternative Investment",
+                    "allocation_percentage": 15.0,
+                    "expected_return": 6.0,
+                    "risk_level": "Moderate",
+                    "fee_structure": "1.5% annual management fee"
+                }
+            ],
+            "strategic_rationale": "This balanced portfolio is designed to provide a mix of growth and income while maintaining a moderate risk profile aligned with the client's investment horizon.",
+            "implementation_timeline": "Week 1: Initial allocation of funds\nWeek 2-3: Phased investment into selected products\nWeek 4: Review and adjustments\nQuarterly: Regular portfolio reviews",
+            "risk_disclaimers": [
+                {
+                    "disclaimer_id": "RISK-001",
+                    "disclaimer_text": "Past performance is not indicative of future results. The value of investments can go down as well as up.",
+                    "applicable_products": ["Diversified Equity Fund", "Corporate Bond Fund", "Real Estate Investment Trust"]
+                },
+                {
+                    "disclaimer_id": "RISK-002",
+                    "disclaimer_text": "Investments are not FDIC insured and may lose value.",
+                    "applicable_products": ["Diversified Equity Fund", "Corporate Bond Fund", "Money Market Fund", "Real Estate Investment Trust"]
+                }
+            ]
+        }
+        
+        # Validate with Pydantic
+        validated_proposal = ProposalDocument(**proposal)
+        
+        return {
+            'is_valid': True,
+            'proposal': validated_proposal.dict(),
+            'fallback_used': True
+        }
+            
+    except Exception as e:
+        logger.error(f"Error in fallback proposal generation: {e}")
+        return {
+            'is_valid': False,
+            'error': f"Error in fallback proposal generation: {str(e)}"
+        }
+
+
+def format_document(proposal: Dict[str, Any], format_type: str = 'docx') -> Dict[str, Any]:
+    """Format the proposal as a document"""
+    try:
+        proposal_id = proposal.get('proposal_id', f"PROP-{uuid.uuid4().hex[:8].upper()}")
+        client_name = proposal.get('client_details', {}).get('client_name', 'Unknown')
+        
+        # Create a file name
+        sanitized_client_name = ''.join(c if c.isalnum() else '_' for c in client_name)
+        file_name = f"{sanitized_client_name}_{proposal_id}.{format_type}"
+        s3_key = f"proposals/{file_name}"
+        
+        # For now, create a simple text/markdown representation
+        # In a real implementation, this would use python-docx or similar library
+        markdown_content = f"""# Investment Proposal for {client_name}
+Proposal ID: {proposal_id}
+Generation Date: {proposal.get('generation_date', datetime.now().isoformat())}
+
+## Executive Summary
+{proposal.get('executive_summary', '')}
+
+## Client Profile
+- **Name**: {proposal.get('client_details', {}).get('client_name', '')}
+- **Type**: {proposal.get('client_details', {}).get('client_type', '')}
+- **Risk Profile**: {proposal.get('client_details', {}).get('risk_profile', '')}
+- **Investment Horizon**: {proposal.get('client_details', {}).get('investment_horizon', '')} years
+- **Total Assets**: ${proposal.get('client_details', {}).get('total_assets', 0):,.2f}
+
+## Investment Recommendations
+
+| Product | Type | Allocation | Expected Return | Risk Level | Fee Structure |
+|---------|------|------------|-----------------|------------|---------------|
+"""
+        
+        # Add each recommendation to the table
+        for rec in proposal.get('recommendations', []):
+            markdown_content += f"| {rec.get('product_name', '')} | {rec.get('product_type', '')} | {rec.get('allocation_percentage', 0)}% | {rec.get('expected_return', 0)}% | {rec.get('risk_level', '')} | {rec.get('fee_structure', '')} |\n"
+        
+        # Add strategic rationale
+        markdown_content += f"""
+## Strategic Rationale
+{proposal.get('strategic_rationale', '')}
+
+## Implementation Timeline
+{proposal.get('implementation_timeline', '')}
+
+## Risk Disclaimers
+"""
+        
+        # Add risk disclaimers
+        for disc in proposal.get('risk_disclaimers', []):
+            markdown_content += f"""
+### {disc.get('disclaimer_id', '')}
+{disc.get('disclaimer_text', '')}
+
+Applicable to: {', '.join(disc.get('applicable_products', []))}
+"""
+        
+        # Add additional notes if present
+        if additional_notes := proposal.get('additional_notes'):
+            markdown_content += f"""
+## Additional Notes
+{additional_notes}
+"""
+        
+        # Upload to S3
+        with tempfile.NamedTemporaryFile(mode='w', suffix=f'.{format_type}') as tmp:
+            tmp.write(markdown_content)
+            tmp.flush()
+            
+            s3.upload_file(
+                Filename=tmp.name,
+                Bucket=PROPOSALS_BUCKET,
+                Key=s3_key
+            )
+        
+        # Generate a pre-signed URL for downloading
+        presigned_url = s3.generate_presigned_url(
+            'get_object',
+            Params={
+                'Bucket': PROPOSALS_BUCKET,
+                'Key': s3_key
+            },
+            ExpiresIn=3600  # URL expires in 1 hour
+        )
+        
+        return {
+            'proposal_id': proposal_id,
+            'file_name': file_name,
+            's3_key': s3_key,
+            'download_url': presigned_url,
+            'format_type': format_type
+        }
+        
+    except Exception as e:
+        logger.error(f"Error formatting document: {e}")
+        raise
+
+
+def handler(event, context):
+    """Lambda handler function"""
+    try:
+        logger.info(f"Received event: {json.dumps(event)}")
+        
+        # Determine operation type
+        operation = event.get('operation')
+        
+        if operation == 'generate_proposal':
+            # Generate a proposal
+            client_details = event.get('client_details', {})
+            financial_data = event.get('financial_data', {})
+            context_result = event.get('context_result', {})
+            model = event.get('model')
+            
+            result = generate_proposal(client_details, financial_data, context_result, model)
+            return {
+                'statusCode': 200,
+                'proposal_result': result
+            }
+            
+        elif operation == 'regenerate_proposal':
+            # Regenerate a proposal that had validation errors
+            client_details = event.get('client_details', {})
+            financial_data = event.get('financial_data', {})
+            context_result = event.get('context_result', {})
+            previous_attempt = event.get('previous_attempt', {})
+            
+            result = regenerate_proposal(client_details, financial_data, context_result, previous_attempt)
+            return {
+                'statusCode': 200,
+                'proposal_result': result
+            }
+            
+        elif operation == 'format_document':
+            # Format the proposal as a document
+            proposal = event.get('proposal', {})
+            format_type = event.get('format_type', 'docx')
+            
+            result = format_document(proposal, format_type)
+            return {
+                'statusCode': 200,
+                'document_result': result
+            }
+            
+        else:
+            logger.error(f"Unknown operation: {operation}")
+            return {
+                'statusCode': 400,
+                'error': f"Unknown operation: {operation}"
+            }
+            
+    except Exception as e:
+        logger.error(f"Error processing request: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return {
+            'statusCode': 500,
+            'error': str(e)
+        }

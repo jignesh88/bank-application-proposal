@@ -32,7 +32,7 @@ The infrastructure defines the following AWS resources:
 - AWS CLI configured with appropriate credentials
 - AWS CDK v2 installed globally (`npm install -g aws-cdk`)
 
-### Steps
+### Steps to Deploy
 
 1. Install dependencies:
    ```
@@ -54,6 +54,41 @@ The infrastructure defines the following AWS resources:
    cdk deploy
    ```
 
+5. Take note of the outputs, which include:
+   - API Gateway URL
+   - S3 bucket names
+   - Step Functions state machine ARN
+
+### Destroying the Infrastructure
+
+After testing is complete, you can destroy all resources to avoid incurring AWS charges:
+
+```
+cdk destroy
+```
+
+When prompted, confirm that you want to delete the stack. This will remove all resources except:
+
+- S3 buckets with the `RemovalPolicy.RETAIN` setting (to prevent accidental data loss)
+- DynamoDB tables with the `RemovalPolicy.RETAIN` setting
+
+To completely remove retained resources after confirming you no longer need the data:
+
+1. Empty the S3 buckets using the AWS Console or CLI:
+   ```
+   aws s3 rm s3://BUCKET_NAME --recursive
+   ```
+
+2. Delete the buckets manually:
+   ```
+   aws s3 rb s3://BUCKET_NAME
+   ```
+
+3. Delete the DynamoDB table:
+   ```
+   aws dynamodb delete-table --table-name TABLE_NAME
+   ```
+
 ## Configuration
 
 The stack uses the following configuration sources:
@@ -67,6 +102,15 @@ The stack uses the following configuration sources:
 Before deployment, ensure the following parameter exists in AWS Parameter Store:
 
 - `/banking-proposal/openai-api-key`: Your OpenAI API key (as a SecureString)
+
+You can create this parameter using the AWS CLI:
+
+```
+aws ssm put-parameter \
+    --name "/banking-proposal/openai-api-key" \
+    --value "your-openai-api-key" \
+    --type SecureString
+```
 
 ## Customization
 
@@ -82,3 +126,23 @@ To customize the deployment:
 - Encryption is enabled for all data storage
 - IAM permissions follow least privilege principle
 - Sensitive values are stored in Parameter Store
+
+## Monitoring and Maintenance
+
+After deployment, you can monitor the application through:
+
+- AWS CloudWatch Logs for Lambda functions
+- Step Functions execution history
+- CloudWatch metrics for API Gateway
+
+## Costs
+
+This serverless infrastructure primarily incurs costs when used. Key cost factors include:
+
+- Lambda invocations and execution duration
+- API Gateway requests
+- S3 storage and requests
+- Step Functions state transitions
+- OpenAI API usage (external to AWS)
+
+When not in use, storage costs for S3 and DynamoDB will be the main ongoing expenses.

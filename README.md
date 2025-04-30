@@ -42,51 +42,86 @@ The system is built on AWS serverless technologies:
 
 ![Sequence Diagram](docs/sequence-diagram.md)
 
-## 🔧 Getting Started
+## 🧩 Quick Start Guide
 
 ### Prerequisites
 
-- AWS CLI configured with appropriate permissions
+- AWS CLI configured with appropriate credentials
 - Node.js 14.x or later (for CDK)
 - Python 3.9 or later
 - OpenAI API Key
 
-### Deployment
-
-1. Clone the repository:
+### 1. Clone the Repository
 
 ```bash
 git clone https://github.com/jignesh88/bank-application-proposal.git
 cd bank-application-proposal
 ```
 
-2. Install dependencies:
+### 2. Store OpenAI API Key in AWS Parameter Store
 
 ```bash
-# Install CDK dependencies
-cd infrastructure
-npm install
-
-# Install Python dependencies for Lambda layers
-cd ../layers/common
-pip install -r requirements.txt -t python
+aws ssm put-parameter \
+    --name "/banking-proposal/openai-api-key" \
+    --value "your-openai-api-key" \
+    --type SecureString
 ```
 
-3. Deploy the infrastructure:
+### 3. Deploy the Infrastructure
 
 ```bash
-cd ../../infrastructure
+cd infrastructure
+npm install
+npm run build
 cdk bootstrap  # Only needed first time
 cdk deploy
 ```
 
-4. Store your OpenAI API key in Parameter Store:
+Note the API Gateway URL in the outputs.
+
+### 4. Test the Application
+
+Upload a sample document template:
 
 ```bash
-aws ssm put-parameter --name '/banking-proposal/openai-api-key' --value 'your-api-key' --type SecureString
+curl -X POST \
+  https://your-api-gateway-url.execute-api.us-east-1.amazonaws.com/prod/documents \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "file_name": "sample_template.docx",
+    "document_type": "docx",
+    "file_content_base64": "'$(base64 -w 0 sample_template.docx)'" 
+  }'
 ```
 
-## 📝 Usage
+See the [testing commands documentation](docs/testing-commands.md) for more examples.
+
+### 5. Clean Up When Done
+
+To avoid ongoing AWS charges when you're finished testing:
+
+```bash
+cd infrastructure
+cdk destroy
+```
+
+For complete cleanup of retained resources (S3 buckets and DynamoDB):
+
+```bash
+# Get bucket names (if you didn't note them during deployment)
+aws s3 ls | grep bankingproposal
+
+# Empty each bucket
+aws s3 rm s3://BUCKET_NAME --recursive
+
+# Delete each bucket
+aws s3 rb s3://BUCKET_NAME
+
+# Delete DynamoDB table (get the name from AWS Console if needed)
+aws dynamodb delete-table --table-name TABLE_NAME
+```
+
+## 📝 Detailed Usage
 
 After deployment, use the API Gateway endpoints to interact with the system:
 
@@ -161,6 +196,13 @@ Run unit tests with:
 python -m unittest discover tests
 ```
 
+Test the infrastructure code with:
+
+```bash
+cd infrastructure
+npm test
+```
+
 Test deployed endpoints using curl commands in [testing-commands.md](docs/testing-commands.md).
 
 ## 🚨 Error Handling
@@ -179,6 +221,15 @@ The system includes robust error handling:
 - IAM roles follow least privilege principle
 - Input validation prevents injection attacks
 - Client data is encrypted in transit and at rest
+
+## 📈 Cost Management
+
+To manage AWS costs effectively:
+
+1. **During Development**: Destroy infrastructure when not in use
+2. **In Production**: Monitor usage with CloudWatch and AWS Cost Explorer
+3. **Lambda Optimization**: Adjust memory allocation for best performance/cost ratio
+4. **S3 Lifecycle Policies**: Automatically transition older data to cheaper storage classes
 
 ## 📄 License
 
